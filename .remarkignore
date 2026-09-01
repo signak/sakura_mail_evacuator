@@ -1,0 +1,6 @@
+node_modules
+dist
+coverage
+.serena/memories
+.specify/templates
+.github\agents
