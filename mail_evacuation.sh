@@ -5,11 +5,11 @@
 
 set -u
 
-MAILBOX_ROOT="/home/calm/MailBox"
-STATE_ROOT="/home/calm/MailEvacuator"
+MAILBOX_ROOT=""
+STATE_ROOT=""
 SCRIPT_NAME="$(basename "$0")"
-LOCK_DIR="${STATE_ROOT}/${SCRIPT_NAME}.lock"
-LOG_DIR="${STATE_ROOT}/logs"
+LOCK_DIR=""
+LOG_DIR=""
 LOG_FILE=""
 LOCK_ACQUIRED=0
 ENSURED_ARCHIVE_YEARS=""
@@ -293,6 +293,16 @@ main() {
     local cutoff_epoch
     local account_path
     local target_account_name="${1:-}"
+
+    # 対象ユーザーの未指定を、ログ初期化前の入力エラーとして明示的に処理する。
+    if [[ -z "${MAIL_EVACUATOR_TARGET_USER:-}" ]]; then
+        printf 'ERROR(main): environment variable MAIL_EVACUATOR_TARGET_USER is not set\n' >&2
+        exit 1
+    fi
+    MAILBOX_ROOT="/home/${MAIL_EVACUATOR_TARGET_USER}/MailBox"
+    STATE_ROOT="/home/${MAIL_EVACUATOR_TARGET_USER}/MailEvacuator"
+    LOCK_DIR="${STATE_ROOT}/${SCRIPT_NAME}.lock"
+    LOG_DIR="${STATE_ROOT}/logs"
 
     if [[ "$#" -gt 1 ]]; then
         printf 'Usage: %s [account_name]\n' "$SCRIPT_NAME" >&2
