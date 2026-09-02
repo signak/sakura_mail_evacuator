@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Maildir形式のメールボックスから30日より古い通常ファイルを年別アーカイブへ退避する。
+# ログ出力、排他ロック、入力・ディレクトリ検証を行い、エラー発生時は直ちに処理を中断する。
+
 set -u
 
 MAILBOX_ROOT="/home/calm/MailBox"
@@ -12,6 +15,7 @@ LOCK_ACQUIRED=0
 ENSURED_ARCHIVE_YEARS=""
 PROCESS_FOLDER_COUNT=0
 
+# ログファイルを利用できない初期化失敗を標準エラーとsyslogへ出力する。
 write_stderr_and_syslog() {
     local message="$1"
 
@@ -19,6 +23,7 @@ write_stderr_and_syslog() {
     logger -t "$SCRIPT_NAME" "$message" || true
 }
 
+# 指定されたログレベルとメッセージを実行ログへ1行追加する。
 write_log() {
     local level="$1"
     local message="$2"
@@ -26,27 +31,32 @@ write_log() {
     printf '%s [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$message" >> "$LOG_FILE"
 }
 
+# ログ初期化前のエラーを出力して終了コード9で終了する。
 fail_before_log() {
     write_stderr_and_syslog "$1"
     exit 9
 }
 
+# メイン処理のエラーをログへ記録して終了コード1で終了する。
 fail_main() {
     write_log "ERROR" "ERROR(main): path='$1': $2"
     exit 1
 }
 
+# サブワークフローのエラーをログへ記録して呼び出し元へ失敗を返す。
 fail_sub() {
     write_log "ERROR" "ERROR(sub): account='$1' path='$2': $3"
     return 1
 }
 
+# パスがシンボリックリンクではない通常ディレクトリかを判定する。
 is_regular_directory() {
     local path="$1"
 
     [[ ! -L "$path" && -d "$path" ]]
 }
 
+# ロックとログの親ディレクトリを作成・検証する。
 ensure_state_root() {
     if [[ -e "$STATE_ROOT" || -L "$STATE_ROOT" ]]; then
         is_regular_directory "$STATE_ROOT" || fail_before_log "ERROR(main): path='$STATE_ROOT': not a regular directory"
@@ -57,6 +67,7 @@ ensure_state_root() {
     [[ -w "$STATE_ROOT" && -x "$STATE_ROOT" ]] || fail_before_log "ERROR(main): path='$STATE_ROOT': not writable"
 }
 
+# 排他的に実行ログファイルを作成し、作成先をLOG_FILEへ設定する。
 create_log_file() {
     local timestamp
     local candidate
@@ -90,6 +101,7 @@ create_log_file() {
     done
 }
 
+# 終了時にロックを解放し、処理本体の終了コードを維持する。
 cleanup_lock() {
     local exit_code=$?
 
@@ -104,10 +116,12 @@ cleanup_lock() {
     exit "$exit_code"
 }
 
+# 割り込みシグナルを受けた場合にエラー終了を開始する。
 handle_signal() {
     exit 1
 }
 
+# mkdirを用いて原子的にロックを取得し、既存ロックの経過時間を確認する。
 acquire_lock() {
     if mkdir "$LOCK_DIR"; then
         LOCK_ACQUIRED=1
@@ -134,6 +148,7 @@ acquire_lock() {
     exit 5
 }
 
+# 指定年のアーカイブディレクトリと退避先curを作成・検証する。
 ensure_archive_directories() {
     local maildir="$1"
     local year="$2"
@@ -152,6 +167,7 @@ ensure_archive_directories() {
     [[ -w "$archive_root" && -x "$archive_root" && -w "$archive_cur" && -x "$archive_cur" ]]
 }
 
+# 今回参照した年のアーカイブが空であればディレクトリを削除する。
 prune_empty_archive() {
     local maildir="$1"
     local year="$2"
@@ -162,6 +178,7 @@ prune_empty_archive() {
     rmdir "$archive_root" 2>/dev/null || true
 }
 
+# curまたはnew配下の対象メールを年別アーカイブのcurへ移動して件数を返す。
 process_folder() {
     local account_name="$1"
     local maildir="$2"
@@ -175,15 +192,18 @@ process_folder() {
     local moved_count=0
     local touched_years=""
 
+    # 対象フォルダ直下の通常ファイルだけを走査し、隠しファイルも対象に含める。
     for file in "$source_dir"/* "$source_dir"/.[!.]* "$source_dir"/..?*; do
         [[ -f "$file" && ! -L "$file" ]] || continue
 
+        # 更新日時を取得し、実行開始時に固定した退避境界より前のファイルだけを対象にする。
         mtime="$(stat -f %m "$file")" || {
             fail_sub "$account_name" "$file" "failed to read modification time"
             return 1
         }
         [[ "$mtime" -lt "$cutoff_epoch" ]] || continue
 
+        # ファイルの更新年を求め、その年の退避先ディレクトリを初回だけ作成・検証する。
         year="$(date -r "$mtime" '+%Y')" || {
             fail_sub "$account_name" "$file" "failed to get archive year"
             return 1
@@ -199,6 +219,7 @@ process_folder() {
                 ;;
         esac
 
+        # 同名ファイルによる上書きを防止してから、年別アーカイブのcurへ移動する。
         destination="${maildir}/.${year}/cur/${file##*/}"
         if [[ -e "$destination" || -L "$destination" ]]; then
             fail_sub "$account_name" "$file" "destination already exists: $destination"
@@ -216,6 +237,7 @@ process_folder() {
         esac
     done
 
+    # 今回参照した年のうち空のアーカイブディレクトリを削除する。
     for year in $touched_years; do
         prune_empty_archive "$maildir" "$year"
     done
@@ -223,6 +245,7 @@ process_folder() {
     PROCESS_FOLDER_COUNT="$moved_count"
 }
 
+# 1アカウントのmaildirを検証し、curとnewの退避処理を実行する。
 process_account() {
     local account_path="$1"
     local account_name
@@ -235,6 +258,7 @@ process_account() {
     account_name="$(basename "$account_path")"
     maildir="${account_path}/maildir"
 
+    # Maildirの構造とアクセス権を確認し、異常時はこのアカウントで処理を止める。
     if ! is_regular_directory "$maildir"; then
         fail_sub "$account_name" "$maildir" "maildir is not a regular directory"
         return 1
@@ -248,18 +272,23 @@ process_account() {
         return 1
     fi
 
+    # 同一アカウント内では年別アーカイブの作成・検証を年ごとに一度だけ行う。
     ENSURED_ARCHIVE_YEARS=""
+
+    # curとnewを順に走査し、退避件数を合算する。
     process_folder "$account_name" "$maildir" "cur" "$cutoff_epoch" || return 1
     cur_count="$PROCESS_FOLDER_COUNT"
     process_folder "$account_name" "$maildir" "new" "$cutoff_epoch" || return 1
     new_count="$PROCESS_FOLDER_COUNT"
     total_count=$((cur_count + new_count))
 
+    # 1件以上を退避したアカウントだけ、合計件数をログへ記録する。
     if [[ "$total_count" -gt 0 ]]; then
         write_log "INFO" "EVACUATED: '$account_name' - $total_count files was evacuated."
     fi
 }
 
+# 初期化、対象アカウントの選択、各アカウントの退避処理を制御する。
 main() {
     local cutoff_epoch
     local account_path
@@ -274,6 +303,7 @@ main() {
         exit 1
     fi
 
+    # ログ出力先を準備して実行ログを作成してから、メールボックスを操作する。
     ensure_state_root
     create_log_file
     write_log "INFO" "start mail evacuation."
@@ -283,9 +313,11 @@ main() {
     fi
     cd "$MAILBOX_ROOT" || fail_main "$MAILBOX_ROOT" "failed to change directory"
 
+    # 実行開始時刻を基準に退避境界を固定し、その後の多重起動を防止する。
     cutoff_epoch="$(date -v -30d '+%s')" || fail_main "$MAILBOX_ROOT" "failed to calculate cutoff time"
     acquire_lock
 
+    # 指定アカウントがある場合はそのアカウントだけを検証して処理する。
     if [[ -n "$target_account_name" ]]; then
         account_path="${MAILBOX_ROOT}/${target_account_name}"
         if ! is_regular_directory "$account_path"; then
@@ -295,6 +327,7 @@ main() {
         return
     fi
 
+    # 引数なしの場合はルート直下の通常ディレクトリを全アカウントとして処理する。
     for account_path in "$MAILBOX_ROOT"/*; do
         [[ -d "$account_path" && ! -L "$account_path" ]] || continue
         process_account "$account_path" "$cutoff_epoch" || exit 1
