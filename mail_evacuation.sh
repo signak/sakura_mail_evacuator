@@ -139,10 +139,9 @@ ensure_archive_directories() {
     local year="$2"
     local archive_root="${maildir}/.${year}"
     local archive_cur="${archive_root}/cur"
-    local archive_new="${archive_root}/new"
     local directory
 
-    for directory in "$archive_root" "$archive_cur" "$archive_new"; do
+    for directory in "$archive_root" "$archive_cur"; do
         if [[ -e "$directory" || -L "$directory" ]]; then
             is_regular_directory "$directory" || return 1
         elif ! mkdir "$directory"; then
@@ -150,7 +149,7 @@ ensure_archive_directories() {
         fi
     done
 
-    [[ -w "$archive_root" && -x "$archive_root" && -w "$archive_cur" && -x "$archive_cur" && -w "$archive_new" && -x "$archive_new" ]]
+    [[ -w "$archive_root" && -x "$archive_root" && -w "$archive_cur" && -x "$archive_cur" ]]
 }
 
 prune_empty_archive() {
@@ -158,8 +157,8 @@ prune_empty_archive() {
     local year="$2"
     local archive_root="${maildir}/.${year}"
 
-    [[ -d "$archive_root/cur" && -d "$archive_root/new" ]] || return
-    rmdir "$archive_root/cur" "$archive_root/new" 2>/dev/null || return
+    [[ -d "$archive_root/cur" ]] || return
+    rmdir "$archive_root/cur" 2>/dev/null || return
     rmdir "$archive_root" 2>/dev/null || true
 }
 
@@ -200,7 +199,7 @@ process_folder() {
                 ;;
         esac
 
-        destination="${maildir}/.${year}/${folder_name}/${file##*/}"
+        destination="${maildir}/.${year}/cur/${file##*/}"
         if [[ -e "$destination" || -L "$destination" ]]; then
             fail_sub "$account_name" "$file" "destination already exists: $destination"
             return 1
@@ -264,6 +263,16 @@ process_account() {
 main() {
     local cutoff_epoch
     local account_path
+    local target_account_name="${1:-}"
+
+    if [[ "$#" -gt 1 ]]; then
+        printf 'Usage: %s [account_name]\n' "$SCRIPT_NAME" >&2
+        exit 1
+    fi
+    if [[ -n "$target_account_name" && ( "$target_account_name" == "." || "$target_account_name" == ".." || "$target_account_name" == */* ) ]]; then
+        printf 'ERROR(main): invalid account name: %s\n' "$target_account_name" >&2
+        exit 1
+    fi
 
     ensure_state_root
     create_log_file
@@ -276,6 +285,15 @@ main() {
 
     cutoff_epoch="$(date -v -30d '+%s')" || fail_main "$MAILBOX_ROOT" "failed to calculate cutoff time"
     acquire_lock
+
+    if [[ -n "$target_account_name" ]]; then
+        account_path="${MAILBOX_ROOT}/${target_account_name}"
+        if ! is_regular_directory "$account_path"; then
+            fail_main "$account_path" "specified account is not a regular directory"
+        fi
+        process_account "$account_path" "$cutoff_epoch" || exit 1
+        return
+    fi
 
     for account_path in "$MAILBOX_ROOT"/*; do
         [[ -d "$account_path" && ! -L "$account_path" ]] || continue
