@@ -5,6 +5,21 @@
 
 set -u
 
+# 環境変数
+# MAIL_EVACUATOR_TARGET_USER:
+#   必須。メール退避の対象ユーザー名。未設定または空文字の場合は標準エラーへ出力して終了コード1で終了する。
+#   この値は、以下のパス例にある {USER} の部分に使用する。
+
+# スクリプト内部変数
+# MAILBOX_ROOT: 対象メールボックスのルートパス。例: /home/{USER}/MailBox
+# STATE_ROOT: ロックとログを保存するルートパス。例: /home/{USER}/MailEvacuator
+# SCRIPT_NAME: 実行中のスクリプト名。例: mail_evacuation.sh
+# LOCK_DIR: 多重起動を防止するロックディレクトリ。例: /home/{USER}/MailEvacuator/mail_evacuation.sh.lock
+# LOG_DIR: 実行ログを保存するディレクトリ。例: /home/{USER}/MailEvacuator/logs
+# LOG_FILE: 今回の実行で作成したログファイルのパス。例: /home/{USER}/MailEvacuator/logs/20260902-020000.log
+# LOCK_ACQUIRED: ロック取得済みかを示すフラグ。1は取得済み、0は未取得。
+# ENSURED_ARCHIVE_YEARS: 作成・検証済みの年別アーカイブを保持する一覧。例: " 2024 2025"
+# PROCESS_FOLDER_COUNT: 直近のフォルダ処理で退避したファイル数。
 MAILBOX_ROOT=""
 STATE_ROOT=""
 SCRIPT_NAME="$(basename "$0")"
