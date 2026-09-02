@@ -27,8 +27,6 @@
 - Bash
 - 実行ユーザーがメールボックスおよび `/home/{USER}/MailEvacuator` を読み書きできること
 
-このスクリプトはFreeBSDの `date` と `stat` のオプションを使用します。Windows PowerShellでは実行できません。
-
 ## 配置と事前準備
 
 スクリプトをサーバーへ配置し、実行権限を設定します。
@@ -36,7 +34,7 @@
 ```sh
 mkdir -p /home/{USER}/MailEvacuator
 cp mail_evacuation.sh /home/{USER}/MailEvacuator/
-chmod 755 /home/{USER}/MailEvacuator/mail_evacuation.sh
+chmod 705 /home/{USER}/MailEvacuator/mail_evacuation.sh
 ```
 
 `{USER}` はメール退避の対象ユーザー名に置き換えてください。スクリプト実行時には環境変数 `MAIL_EVACUATOR_TARGET_USER` の設定が必須です。未設定または空文字の場合、標準エラーへメッセージを出力して終了コード `1` で終了します。
