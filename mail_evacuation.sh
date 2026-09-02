@@ -30,12 +30,15 @@ LOCK_ACQUIRED=0
 ENSURED_ARCHIVE_YEARS=""
 PROCESS_FOLDER_COUNT=0
 
-# ログファイルを利用できない初期化失敗を標準エラーとsyslogへ出力する。
+# 指定されたログレベルとメッセージを標準エラーとsyslogへ統一形式で出力する。
 write_stderr_and_syslog() {
-    local message="$1"
+    local level="$1"
+    local message="$2"
+    local log_line
 
-    printf '%s\n' "$message" >&2
-    logger -t "$SCRIPT_NAME" "$message" || true
+    log_line="$(printf '%s [%s] %s' "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$message")"
+    printf '%s\n' "$log_line" >&2
+    logger -t "$SCRIPT_NAME" "$log_line" || true
 }
 
 # 指定されたログレベルとメッセージを実行ログへ1行追加する。
@@ -46,9 +49,17 @@ write_log() {
     printf '%s [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$message" >> "$LOG_FILE"
 }
 
+# 指定されたログレベルとメッセージを標準出力へ統一形式で出力する。
+write_stdout_log() {
+    local level="$1"
+    local message="$2"
+
+    printf '%s [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$message"
+}
+
 # ログ初期化前のエラーを出力して終了コード9で終了する。
 fail_before_log() {
-    write_stderr_and_syslog "$1"
+    write_stderr_and_syslog "ERROR" "$1"
     exit 9
 }
 
@@ -153,13 +164,13 @@ acquire_lock() {
         now_epoch="$(date '+%s')" || fail_main "$LOCK_DIR" "failed to get current time"
         if [[ "$lock_mtime" -le $((now_epoch - 86400)) ]]; then
             write_log "ERROR" "ERROR(main): path='$LOCK_DIR': lock directory is at least 24 hours old"
-            write_stderr_and_syslog "ERROR(main): path='$LOCK_DIR': lock directory is at least 24 hours old"
+            write_stderr_and_syslog "ERROR" "ERROR(main): path='$LOCK_DIR': lock directory is at least 24 hours old"
             exit 8
         fi
     fi
 
     write_log "ERROR" "ERROR(main): path='$LOCK_DIR': failed to acquire lock"
-    write_stderr_and_syslog "ERROR(main): path='$LOCK_DIR': failed to acquire lock"
+    write_stderr_and_syslog "ERROR" "ERROR(main): path='$LOCK_DIR': failed to acquire lock"
     exit 5
 }
 
@@ -309,9 +320,12 @@ main() {
     local account_path
     local target_account_name="${1:-}"
 
+    # ログファイル初期化前にも実行開始を追跡できるよう、標準出力へ開始ログを出力する。
+    write_stdout_log "INFO" "start mail evacuation."
+
     # 対象ユーザーの未指定を、ログ初期化前の入力エラーとして明示的に処理する。
     if [[ -z "${MAIL_EVACUATOR_TARGET_USER:-}" ]]; then
-        printf 'ERROR(main): environment variable MAIL_EVACUATOR_TARGET_USER is not set\n' >&2
+        write_stderr_and_syslog "ERROR" "ERROR(main): environment variable MAIL_EVACUATOR_TARGET_USER is not set"
         exit 1
     fi
     MAILBOX_ROOT="/home/${MAIL_EVACUATOR_TARGET_USER}/MailBox"
@@ -320,11 +334,11 @@ main() {
     LOG_DIR="${STATE_ROOT}/logs"
 
     if [[ "$#" -gt 1 ]]; then
-        printf 'Usage: %s [account_name]\n' "$SCRIPT_NAME" >&2
+        write_stderr_and_syslog "ERROR" "Usage: $SCRIPT_NAME [account_name]"
         exit 1
     fi
     if [[ -n "$target_account_name" && ( "$target_account_name" == "." || "$target_account_name" == ".." || "$target_account_name" == */* ) ]]; then
-        printf 'ERROR(main): invalid account name: %s\n' "$target_account_name" >&2
+        write_stderr_and_syslog "ERROR" "ERROR(main): invalid account name: $target_account_name"
         exit 1
     fi
 
@@ -359,6 +373,7 @@ main() {
 
     # すべての対象アカウントを正常に処理できた場合だけ、処理完了を記録する。
     write_log "INFO" "mail evacuation completed."
+    write_stdout_log "INFO" "mail evacuation completed."
 }
 
 main "$@"
