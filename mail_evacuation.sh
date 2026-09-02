@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 
-# Maildir形式のメールボックスから30日より古い通常ファイルを年別アーカイブへ退避する。
+# メールボックスから30日より古い通常ファイルを年別アーカイブへ退避する。
 # ログ出力、排他ロック、入力・ディレクトリ検証を行い、エラー発生時は直ちに処理を中断する。
+#
+# Version: 1.0.0
+#
+# Usage(bash):
+#   MAIL_EVACUATOR_TARGET_USER={USER}
+#   mail_evacuation.sh [account_name]
 
 set -u
 
