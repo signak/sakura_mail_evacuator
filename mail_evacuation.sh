@@ -349,14 +349,16 @@ main() {
             fail_main "$account_path" "specified account is not a regular directory"
         fi
         process_account "$account_path" "$cutoff_epoch" || exit 1
-        return
+    else
+        # 引数なしの場合はルート直下の通常ディレクトリを全アカウントとして処理する。
+        for account_path in "$MAILBOX_ROOT"/*; do
+            [[ -d "$account_path" && ! -L "$account_path" ]] || continue
+            process_account "$account_path" "$cutoff_epoch" || exit 1
+        done
     fi
 
-    # 引数なしの場合はルート直下の通常ディレクトリを全アカウントとして処理する。
-    for account_path in "$MAILBOX_ROOT"/*; do
-        [[ -d "$account_path" && ! -L "$account_path" ]] || continue
-        process_account "$account_path" "$cutoff_epoch" || exit 1
-    done
+    # すべての対象アカウントを正常に処理できた場合だけ、処理完了を記録する。
+    write_log "INFO" "mail evacuation completed."
 }
 
 main "$@"
